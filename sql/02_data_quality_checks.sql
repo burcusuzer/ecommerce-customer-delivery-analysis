@@ -1,5 +1,6 @@
 USE olist_ecommerce;
 
+
 -- =========================================================
 -- Customers Table - Data Quality and Initial Validation
 -- =========================================================
@@ -62,6 +63,8 @@ SELECT
     MAX(purchase_count) AS max_purchase_count
 FROM customer_frequency;
 
+
+
 -- =========================================================
 -- Orders Table - Data Quality Checks
 -- =========================================================
@@ -122,8 +125,10 @@ FROM orders;
 SELECT
     SUM(order_approved_at < order_purchase_timestamp)
         AS approval_before_purchase,
+
     SUM(order_delivered_carrier_date < order_approved_at)
         AS carrier_before_approval,
+
     SUM(order_delivered_customer_date < order_delivered_carrier_date)
         AS delivery_before_carrier
 FROM orders;
@@ -140,7 +145,8 @@ WHERE
 
 
 -- 7. Check for orders without a matching customer
-SELECT COUNT(*) AS unmatched_customer_records
+SELECT
+    COUNT(*) AS unmatched_customer_records
 FROM orders o
 LEFT JOIN customers c
     ON o.customer_id = c.customer_id
@@ -152,6 +158,7 @@ SELECT
     MIN(order_purchase_timestamp) AS first_order_date,
     MAX(order_purchase_timestamp) AS last_order_date
 FROM orders;
+
 
 -- 9. Missing lifecycle timestamps by order status
 -- Helps distinguish expected nulls from potential data quality issues
@@ -202,6 +209,7 @@ ORDER BY order_count DESC;
 -- 11. Summary of carrier-before-approval time differences
 SELECT
     COUNT(*) AS affected_orders,
+
     MIN(
         TIMESTAMPDIFF(
             HOUR,
@@ -209,6 +217,7 @@ SELECT
             order_approved_at
         )
     ) AS min_hours_difference,
+
     ROUND(
         AVG(
             TIMESTAMPDIFF(
@@ -219,6 +228,7 @@ SELECT
         ),
         2
     ) AS avg_hours_difference,
+
     MAX(
         TIMESTAMPDIFF(
             HOUR,
@@ -226,8 +236,10 @@ SELECT
             order_approved_at
         )
     ) AS max_hours_difference
+
 FROM orders
 WHERE order_delivered_carrier_date < order_approved_at;
+
 
 
 -- =========================================================
@@ -236,14 +248,28 @@ WHERE order_delivered_carrier_date < order_approved_at;
 
 
 -- 1. Row count and order coverage
+-- Grain: one row represents one item within an order
 SELECT
     COUNT(*) AS total_order_items,
-    COUNT(DISTINCT order_id) AS orders_with_items,
-    MAX(order_item_id) AS max_items_in_single_order
+    COUNT(DISTINCT order_id) AS orders_with_items
 FROM order_items;
 
 
--- 2. Null value checks
+-- 2. Maximum number of item records in a single order
+-- COUNT(*) is used instead of MAX(order_item_id) because a sequence
+-- number should not be assumed to equal the actual number of records
+SELECT
+    MAX(item_count) AS max_items_in_single_order
+FROM (
+    SELECT
+        order_id,
+        COUNT(*) AS item_count
+    FROM order_items
+    GROUP BY order_id
+) t;
+
+
+-- 3. Null value checks
 SELECT
     SUM(order_id IS NULL) AS null_order_id,
     SUM(order_item_id IS NULL) AS null_order_item_id,
@@ -255,17 +281,20 @@ SELECT
 FROM order_items;
 
 
--- 3. Duplicate composite key check
+-- 4. Duplicate composite key check
+-- order_id + order_item_id should uniquely identify an order item
 SELECT
     order_id,
     order_item_id,
     COUNT(*) AS row_count
 FROM order_items
-GROUP BY order_id, order_item_id
+GROUP BY
+    order_id,
+    order_item_id
 HAVING COUNT(*) > 1;
 
 
--- 4. Price and freight sanity checks
+-- 5. Price and freight sanity checks
 SELECT
     SUM(price <= 0) AS non_positive_price,
     SUM(freight_value < 0) AS negative_freight_value,
@@ -276,7 +305,7 @@ SELECT
 FROM order_items;
 
 
--- 5. Order items without a matching order
+-- 6. Order items without a matching order
 SELECT
     COUNT(*) AS unmatched_order_items
 FROM order_items oi
@@ -285,7 +314,7 @@ LEFT JOIN orders o
 WHERE o.order_id IS NULL;
 
 
--- 6. Orders without matching order items by status
+-- 7. Orders without matching order items by status
 SELECT
     o.order_status,
     COUNT(*) AS order_count
@@ -297,16 +326,17 @@ GROUP BY o.order_status
 ORDER BY order_count DESC;
 
 
+
 -- =========================================================
 -- Order Payments Table - Data Quality and Initial Validation
 -- =========================================================
 
 
 -- 1. Row count and order coverage
+-- Grain: one row represents one payment record for an order
 SELECT
-    COUNT(*) AS total_payment_rows,
-    COUNT(DISTINCT order_id) AS orders_with_payments,
-    MAX(payment_sequential) AS max_payment_sequence
+    COUNT(*) AS total_payment_records,
+    COUNT(DISTINCT order_id) AS orders_with_payments
 FROM order_payments;
 
 
@@ -321,19 +351,22 @@ FROM order_payments;
 
 
 -- 3. Duplicate composite key check
+-- order_id + payment_sequential should uniquely identify a payment record
 SELECT
     order_id,
     payment_sequential,
     COUNT(*) AS row_count
 FROM order_payments
-GROUP BY order_id, payment_sequential
+GROUP BY
+    order_id,
+    payment_sequential
 HAVING COUNT(*) > 1;
 
 
 -- 4. Payment value and installment sanity checks
 SELECT
-    SUM(payment_value < 0) AS negative_payment_value,
-    SUM(payment_value = 0) AS zero_payment_value,
+    SUM(payment_value < 0) AS negative_payment_values,
+    SUM(payment_value = 0) AS zero_payment_values,
     SUM(payment_installments < 0) AS negative_installments,
     SUM(payment_installments = 0) AS zero_installments,
     MIN(payment_value) AS min_payment_value,
@@ -343,17 +376,33 @@ SELECT
 FROM order_payments;
 
 
--- 5. Orders without a matching payment record
+-- 5. Payment type distribution
+-- Percentages below represent payment records, not unique orders
 SELECT
-    o.order_id,
-    o.order_status
-FROM orders o
-LEFT JOIN order_payments op
-    ON o.order_id = op.order_id
-WHERE op.order_id IS NULL;
+    payment_type,
+    COUNT(*) AS payment_count,
+    ROUND(
+        100.0 * COUNT(*) / SUM(COUNT(*)) OVER (),
+        2
+    ) AS payment_share_pct
+FROM order_payments
+GROUP BY payment_type
+ORDER BY payment_count DESC;
 
 
--- 6. Zero-total-payment orders by status
+-- 6. Investigate zero-value payment records by payment type
+SELECT
+    payment_type,
+    COUNT(*) AS zero_payment_count
+FROM order_payments
+WHERE payment_value = 0
+GROUP BY payment_type
+ORDER BY zero_payment_count DESC;
+
+
+-- 7. Zero-total-payment orders by status
+-- Aggregating first prevents multiple payment rows from being interpreted
+-- as multiple orders
 WITH payment_totals AS (
     SELECT
         order_id,
@@ -372,20 +421,20 @@ GROUP BY o.order_status
 ORDER BY order_count DESC;
 
 
--- 7. Payment type distribution
+-- 8. Orders without a matching payment record
 SELECT
-    payment_type,
-    COUNT(*) AS payment_count,
-    ROUND(
-        100.0 * COUNT(*) / SUM(COUNT(*)) OVER (),
-        2
-    ) AS payment_share_pct
-FROM order_payments
-GROUP BY payment_type
-ORDER BY payment_count DESC;
+    o.order_id,
+    o.order_status,
+    o.order_purchase_timestamp,
+    o.order_approved_at,
+    o.order_delivered_customer_date
+FROM orders o
+LEFT JOIN order_payments op
+    ON o.order_id = op.order_id
+WHERE op.order_id IS NULL;
 
 
--- 8. Orders with multiple payment records
+-- 9. Orders with multiple payment records
 SELECT
     COUNT(*) AS multi_payment_orders
 FROM (
@@ -397,7 +446,7 @@ FROM (
 ) t;
 
 
--- 9. Orders using multiple payment methods
+-- 10. Orders using multiple payment methods
 SELECT
     COUNT(*) AS multi_method_orders
 FROM (
@@ -407,3 +456,104 @@ FROM (
     GROUP BY order_id
     HAVING COUNT(DISTINCT payment_type) > 1
 ) t;
+
+
+-- 11. Credit card payment records with zero installments
+SELECT
+    order_id,
+    payment_sequential,
+    payment_type,
+    payment_installments,
+    payment_value
+FROM order_payments
+WHERE payment_type = 'credit_card'
+  AND payment_installments = 0;
+
+
+-- 12. Orders whose available payment sequence does not start at 1
+SELECT
+    COUNT(*) AS orders_not_starting_at_1
+FROM (
+    SELECT
+        order_id
+    FROM order_payments
+    GROUP BY order_id
+    HAVING MIN(payment_sequential) <> 1
+) t;
+
+
+-- 13. Check for internal gaps in payment sequences
+-- Example of an internal gap: 1, 2, 4
+SELECT
+    order_id,
+    COUNT(*) AS payment_records,
+    MIN(payment_sequential) AS min_sequence,
+    MAX(payment_sequential) AS max_sequence
+FROM order_payments
+GROUP BY order_id
+HAVING COUNT(*) <> MAX(payment_sequential) - MIN(payment_sequential) + 1;
+
+
+-- 14. Orders with the highest number of payment records
+-- COUNT(*) is used rather than MAX(payment_sequential)
+SELECT
+    order_id,
+    COUNT(*) AS payment_count
+FROM order_payments
+GROUP BY order_id
+ORDER BY payment_count DESC
+LIMIT 10;
+
+
+
+-- =========================================================
+-- Order Payments - Findings
+-- =========================================================
+
+-- Grain:
+-- One row represents one payment record for an order.
+-- The combination of order_id + payment_sequential is unique.
+--
+-- 103,886 payment records exist across 99,440 orders.
+--
+-- No null values were found in the checked payment fields.
+-- No duplicate (order_id, payment_sequential) combinations were found.
+-- No negative payment values were found.
+--
+-- 9 zero-value payment records were found:
+--   - 6 voucher records
+--   - 3 not_defined records
+--
+-- The zero-value voucher records belong to orders that also contain
+-- other positive payment records, so the orders themselves do not
+-- have zero total payment.
+--
+-- The 3 not_defined zero-value payment records belong to cancelled
+-- orders that were never approved.
+--
+-- One delivered order has no corresponding payment record:
+-- order_id = bfbd0f9bdef84302105ad712db648a6c
+--
+-- This order contains:
+--   - 3 items
+--   - product value = 134.97
+--   - freight value = 8.49
+--
+-- The order remains usable for analyses that do not depend on
+-- payment data, but should be handled carefully in payment-based metrics.
+--
+-- Two credit-card payment records have payment_installments = 0.
+-- Both orders were delivered normally.
+-- In both cases, payment_value exactly matches product value + freight,
+-- suggesting that the payment amount is usable even though the
+-- installment metadata is unusual.
+--
+-- 80 orders have available payment sequences that do not start at 1.
+-- No internal sequence gaps were found.
+-- This is treated as a minor data quirk rather than a critical error.
+--
+-- Maximum payment records observed for a single order: 29.
+--
+-- Analyst note:
+-- An anomaly in one field does not necessarily invalidate the entire row.
+-- Records should be excluded only from metrics affected by the anomalous field.
