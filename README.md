@@ -2,7 +2,7 @@
 
 An end-to-end data analytics portfolio project exploring customer behavior, order performance, payments, and delivery operations using the Brazilian E-Commerce Public Dataset by Olist.
 
-The project is being developed as a practical **Data Analyst / Business Intelligence** case study. The current phase focuses on **SQL, MySQL, relational modeling, and data quality validation**. Python/Pandas and Power BI will be added in later stages for exploratory analysis, feature engineering, dashboarding, and business storytelling.
+The project is being developed as a practical **Data Analyst / Business Intelligence** case study. Core-table data quality validation is complete, and the project has now moved into **SQL business analysis**, with Python/Pandas and Power BI planned for later stages of exploratory analysis, feature engineering, dashboarding, and business storytelling.
 
 ## Project Objectives
 
@@ -251,7 +251,8 @@ ecommerce-customer-delivery-analysis/
 │   ├── 02_data_quality_checks.sql
 │   ├── 03_create_orders_table.sql
 │   ├── 04_create_order_items_table.sql
-│   └── 05_create_order_payments_table.sql
+│   ├── 05_create_order_payments_table.sql
+│   └── 06_business_analysis.sql
 │
 ├── python/
 ├── images/
@@ -259,13 +260,63 @@ ecommerce-customer-delivery-analysis/
 └── .gitignore
 ```
 
-## Planned Business Analysis
+## Business Analysis Progress
 
-The next SQL stage will focus on:
+### 1. Monthly Order Volume & Product Revenue
 
-- Order and revenue trends
+**Business Question**
+
+How have completed order volume and product revenue changed over time?
+
+**Metric definitions**
+
+- Completed orders: distinct orders with `order_status = 'delivered'`
+- Product revenue: `SUM(order_items.price)` for delivered orders
+- Freight is excluded from product revenue
+- Monthly grouping is based on `order_purchase_timestamp`
+
+**Grain consideration**
+
+Joining `orders` to `order_items` changes the result from order grain to order-item grain. Therefore:
+
+- `COUNT(DISTINCT order_id)` is used for completed-order volume
+- `SUM(price)` is used for product revenue
+
+**Key findings**
+
+- Delivered-order volume and product revenue grew strongly throughout 2017.
+- November 2017 shows a major spike with **7,289 delivered orders** and **987,765.37** in product revenue.
+- Performance became more stable during 2018, with monthly delivered orders generally around 6,000–7,000.
+- May 2018 generated **977,544.69** in product revenue from **6,749 delivered orders**, almost matching November 2017 revenue despite having fewer orders.
+- This difference suggests that monthly revenue performance cannot be explained by order volume alone.
+
+**Current insight**
+
+Revenue growth appears to be influenced by both order volume and changes in average value per order. The next step is to decompose revenue into its main drivers before making pricing, promotion, or category recommendations.
+
+**Driver hypotheses to test**
+
+- Order volume
 - Average Order Value (AOV)
-- Revenue driver analysis
+- Product and category mix
+- Higher-priced product categories
+- Items purchased per order
+- Geographic differences
+- New vs. repeat customer composition
+- Seasonal demand or promotional periods
+
+These remain hypotheses until validated with further analysis.
+
+### Next SQL Analysis
+
+The next step is:
+
+> **Revenue decomposition → Order Volume + Average Order Value (AOV)**
+
+This will help determine whether monthly revenue changes are primarily driven by more orders, higher value per order, or a combination of both.
+
+### Planned Later Analyses
+
 - Customer geographic analysis
 - Repeat customer behavior
 - Payment method analysis
@@ -305,12 +356,18 @@ Analytical views will be designed after the business-analysis stage clarifies wh
 
 🚧 **Work in progress**
 
-**Current phase:** Core-table data quality validation is complete for `customers`, `orders`, `order_items`, and `order_payments`.
+**Completed:** Core-table data quality validation for `customers`, `orders`, `order_items`, and `order_payments`.
 
-**Next phase:** SQL business analysis using the framework:
+**Current phase:** SQL business analysis.
 
-> **Business Question → Analysis → Insight → Recommendation**
+The first completed business analysis examines monthly delivered-order volume and product revenue. The next step is AOV and revenue-driver decomposition.
 
-After each major step, the workflow will also be reviewed with one additional question:
+Each analysis follows:
+
+> **Business Question → Analysis → Result → Insight → Recommendation**
+
+Recommendations are added only after the relevant drivers have been investigated and supported by the data.
+
+After each major step, the workflow is also reviewed with one additional question:
 
 > **Can this be done more simply, practically, or efficiently?**
