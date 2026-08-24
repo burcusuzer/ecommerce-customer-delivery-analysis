@@ -557,3 +557,388 @@ LIMIT 10;
 -- Analyst note:
 -- An anomaly in one field does not necessarily invalidate the entire row.
 -- Records should be excluded only from metrics affected by the anomalous field.
+
+
+-- =========================================================
+-- Products Table - Data Quality and Initial Validation
+-- =========================================================
+
+
+-- 1. Row count and product ID uniqueness
+-- Grain: one row represents one product
+SELECT
+    COUNT(*) AS total_products,
+    COUNT(DISTINCT product_id) AS distinct_product_ids
+FROM products;
+
+
+-- 2. Null value checks
+SELECT
+    SUM(product_id IS NULL) AS null_product_id,
+    SUM(product_category_name IS NULL) AS null_category,
+    SUM(product_name_length IS NULL) AS null_name_length,
+    SUM(product_description_length IS NULL) AS null_description_length,
+    SUM(product_photos_qty IS NULL) AS null_photos_qty,
+    SUM(product_weight_g IS NULL) AS null_weight,
+    SUM(product_length_cm IS NULL) AS null_length,
+    SUM(product_height_cm IS NULL) AS null_height,
+    SUM(product_width_cm IS NULL) AS null_width
+FROM products;
+
+
+-- 3. Duplicate product ID check
+-- product_id should uniquely identify a product
+SELECT
+    product_id,
+    COUNT(*) AS row_count
+FROM products
+GROUP BY product_id
+HAVING COUNT(*) > 1;
+
+
+-- 4. Blank product category check
+-- Blank strings are checked separately because they are not counted as NULL
+SELECT
+    COUNT(*) AS blank_category_count
+FROM products
+WHERE TRIM(product_category_name) = '';
+
+
+-- 5. Products with missing category and descriptive metadata
+-- Checks whether blank category values belong to the same products
+-- that also have missing descriptive fields
+SELECT
+    COUNT(*) AS products_with_missing_category_and_description
+FROM products
+WHERE TRIM(product_category_name) = ''
+  AND product_name_length IS NULL
+  AND product_description_length IS NULL
+  AND product_photos_qty IS NULL;
+
+
+-- 6. Products with missing physical dimensions
+SELECT
+    product_id,
+    product_category_name,
+    product_weight_g,
+    product_length_cm,
+    product_height_cm,
+    product_width_cm
+FROM products
+WHERE product_weight_g IS NULL
+   OR product_length_cm IS NULL
+   OR product_height_cm IS NULL
+   OR product_width_cm IS NULL;
+
+
+
+-- =========================================================
+-- Products - Findings
+-- =========================================================
+
+-- Grain:
+-- One row represents one product.
+-- product_id uniquely identifies each product.
+--
+-- 32,951 product records were found.
+-- All 32,951 product_id values are distinct.
+--
+-- No NULL product_id values were found.
+-- No NULL product_category_name values were found.
+--
+-- 610 products have blank product_category_name values.
+--
+-- The same 610 products also have missing:
+--   - product_name_length
+--   - product_description_length
+--   - product_photos_qty
+--
+-- This indicates that the missing category and descriptive metadata
+-- are concentrated in the same group of products rather than being
+-- separate missing-data issues.
+--
+-- 2 products have missing physical dimension data:
+--   - product_weight_g
+--   - product_length_cm
+--   - product_height_cm
+--   - product_width_cm
+--
+-- Analyst note:
+-- Products with missing descriptive or physical metadata should not
+-- automatically be removed from the dataset.
+--
+-- They can still be used in analyses that depend on product_id and
+-- order-item price, such as overall revenue analysis.
+--
+-- However, the 610 products with blank category values cannot be
+-- assigned to a known category and should therefore be handled as
+-- uncategorized in category-level analysis.
+
+
+-- =========================================================
+-- Product Category Translation Table - Data Quality and Initial Validation
+-- =========================================================
+
+
+-- 1. Row count and category uniqueness
+-- Grain: one row represents one Portuguese-to-English category mapping
+SELECT
+    COUNT(*) AS total_rows,
+    COUNT(DISTINCT product_category_name) AS distinct_categories
+FROM product_category_name_translation;
+
+
+-- 2. Null and blank value checks
+SELECT
+    SUM(product_category_name IS NULL) AS null_category_name,
+    SUM(product_category_name_english IS NULL) AS null_english_name,
+    SUM(TRIM(product_category_name) = '') AS blank_category_name,
+    SUM(TRIM(product_category_name_english) = '') AS blank_english_name
+FROM product_category_name_translation;
+
+
+-- 3. Duplicate category check
+-- Each Portuguese category should map to only one English category name
+SELECT
+    product_category_name,
+    COUNT(*) AS row_count
+FROM product_category_name_translation
+GROUP BY product_category_name
+HAVING COUNT(*) > 1;
+
+
+-- 4. Check translation coverage against the products table
+-- Blank product categories are excluded because they cannot be translated
+SELECT
+    COUNT(DISTINCT p.product_category_name) AS unmatched_categories
+FROM products p
+LEFT JOIN product_category_name_translation t
+    ON p.product_category_name = t.product_category_name
+WHERE TRIM(p.product_category_name) <> ''
+  AND t.product_category_name IS NULL;
+
+
+-- 5. List unmatched product categories
+-- Used to investigate missing mappings in the source translation dataset
+SELECT DISTINCT
+    p.product_category_name
+FROM products p
+LEFT JOIN product_category_name_translation t
+    ON p.product_category_name = t.product_category_name
+WHERE TRIM(p.product_category_name) <> ''
+  AND t.product_category_name IS NULL
+ORDER BY p.product_category_name;
+
+
+-- 6. Check product-level impact of missing category translations
+SELECT
+    product_category_name,
+    COUNT(*) AS product_count
+FROM products
+WHERE product_category_name IN (
+    'pc_gamer',
+    'portateis_cozinha_e_preparadores_de_alimentos'
+)
+GROUP BY product_category_name
+ORDER BY product_count DESC;
+
+
+-- 7. Check sales impact of missing category translations
+SELECT
+    p.product_category_name,
+    COUNT(*) AS items_sold,
+    COUNT(DISTINCT oi.order_id) AS orders,
+    ROUND(SUM(oi.price), 2) AS product_revenue
+FROM products p
+JOIN order_items oi
+    ON p.product_id = oi.product_id
+WHERE p.product_category_name IN (
+    'pc_gamer',
+    'portateis_cozinha_e_preparadores_de_alimentos'
+)
+GROUP BY p.product_category_name
+ORDER BY product_revenue DESC;
+
+
+-- 8. Final translation coverage check after adding missing mappings
+SELECT
+    COUNT(DISTINCT p.product_category_name) AS unmatched_categories
+FROM products p
+LEFT JOIN product_category_name_translation t
+    ON p.product_category_name = t.product_category_name
+WHERE TRIM(p.product_category_name) <> ''
+  AND t.product_category_name IS NULL;
+
+
+
+-- =========================================================
+-- Product Category Translation - Findings
+-- =========================================================
+
+-- Grain:
+-- One row represents one Portuguese-to-English product category mapping.
+--
+-- The original translation dataset contained:
+--   - 71 rows
+--   - 71 distinct Portuguese category names
+--
+-- No NULL or blank values were found in either:
+--   - product_category_name
+--   - product_category_name_english
+--
+-- No duplicate Portuguese category names were found in the original
+-- translation dataset.
+--
+-- Coverage validation against the products table identified 2 product
+-- categories without an English translation:
+--   - pc_gamer
+--   - portateis_cozinha_e_preparadores_de_alimentos
+--
+-- Product-level impact:
+--   - portateis_cozinha_e_preparadores_de_alimentos: 10 products
+--   - pc_gamer: 3 products
+--
+-- Sales impact:
+--   - portateis_cozinha_e_preparadores_de_alimentos:
+--       15 items sold
+--       14 orders
+--       product revenue = 3,968.53
+--
+--   - pc_gamer:
+--       9 items sold
+--       8 orders
+--       product revenue = 1,545.95
+--
+-- Because both categories contain valid products and generated sales,
+-- leaving them untranslated would create incomplete category-level
+-- reporting.
+--
+-- Two missing mappings were therefore added through a documented SQL
+-- script rather than manually editing the table:
+--   - pc_gamer -> pc_gamer
+--   - portateis_cozinha_e_preparadores_de_alimentos
+--     -> portable_kitchen_food_preparation_appliances
+--
+-- After the missing mappings were added:
+--   - 73 translation rows exist
+--   - 73 distinct Portuguese categories exist
+--   - 0 unmatched non-blank product categories remain
+--   - no duplicate category mappings remain
+--
+-- Analyst note:
+-- Reference and lookup tables should be validated against the business
+-- tables that use them. A lookup table can be internally clean while
+-- still having incomplete coverage of valid business values.
+
+
+-- =========================================================
+-- Order Reviews Table - Data Quality and Initial Validation
+-- =========================================================
+
+
+-- 1. Row count and order coverage
+-- Grain: one row represents one review record associated with an order
+SELECT
+    COUNT(*) AS total_review_records,
+    COUNT(DISTINCT review_id) AS distinct_review_ids,
+    COUNT(DISTINCT order_id) AS orders_with_reviews
+FROM order_reviews;
+
+
+-- 2. Null value checks
+SELECT
+    SUM(review_id IS NULL) AS null_review_id,
+    SUM(order_id IS NULL) AS null_order_id,
+    SUM(review_score IS NULL) AS null_review_score,
+    SUM(review_creation_date IS NULL) AS null_creation_date,
+    SUM(review_answer_timestamp IS NULL) AS null_answer_timestamp
+FROM order_reviews;
+
+
+-- 3. Duplicate review ID check
+SELECT
+    review_id,
+    COUNT(*) AS row_count
+FROM order_reviews
+GROUP BY review_id
+HAVING COUNT(*) > 1
+ORDER BY row_count DESC;
+
+
+-- 4. Orders with multiple review records
+SELECT
+    order_id,
+    COUNT(*) AS review_count
+FROM order_reviews
+GROUP BY order_id
+HAVING COUNT(*) > 1
+ORDER BY review_count DESC;
+
+
+-- 5. Review score distribution
+SELECT
+    review_score,
+    COUNT(*) AS review_count,
+    ROUND(
+        100.0 * COUNT(*) / SUM(COUNT(*)) OVER (),
+        2
+    ) AS review_share_pct
+FROM order_reviews
+GROUP BY review_score
+ORDER BY review_score;
+
+
+-- 6. Review score sanity check
+SELECT
+    SUM(review_score < 1) AS scores_below_1,
+    SUM(review_score > 5) AS scores_above_5,
+    MIN(review_score) AS min_review_score,
+    MAX(review_score) AS max_review_score
+FROM order_reviews;
+
+
+-- 7. Missing or blank review comments
+-- Review comments are optional, so missing values are not automatically data-quality errors
+SELECT
+    SUM(
+        review_comment_title IS NULL
+        OR TRIM(review_comment_title) = ''
+    ) AS missing_review_titles,
+    SUM(
+        review_comment_message IS NULL
+        OR TRIM(review_comment_message) = ''
+    ) AS missing_review_messages
+FROM order_reviews;
+
+
+-- 8. Reviews without a matching order
+SELECT
+    COUNT(*) AS reviews_without_matching_order
+FROM order_reviews r
+LEFT JOIN orders o
+    ON r.order_id = o.order_id
+WHERE o.order_id IS NULL;
+
+
+-- 9. Review answers recorded before review creation
+SELECT
+    COUNT(*) AS answer_before_creation
+FROM order_reviews
+WHERE review_answer_timestamp < review_creation_date;
+
+
+-- 10. Reviews created before the corresponding order was purchased
+SELECT
+    COUNT(*) AS review_before_purchase
+FROM order_reviews r
+JOIN orders o
+    ON r.order_id = o.order_id
+WHERE r.review_creation_date < o.order_purchase_timestamp;
+
+
+
+-- =========================================================
+-- Order Reviews - Findings
+-- =========================================================
+
+-- Findings will be added after validation results are reviewed.

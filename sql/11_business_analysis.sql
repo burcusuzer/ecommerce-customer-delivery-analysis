@@ -190,3 +190,6 @@ ORDER BY order_month;
 -- Next step:
 -- Decompose product revenue into order volume and
 -- average product revenue per delivered order.
+
+
+
