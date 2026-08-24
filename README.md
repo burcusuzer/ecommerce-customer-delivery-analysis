@@ -2,7 +2,11 @@
 
 An end-to-end data analytics portfolio project exploring customer behavior, order performance, payments, and delivery operations using the Brazilian E-Commerce Public Dataset by Olist.
 
-The project is being developed as a practical **Data Analyst / Business Intelligence** case study. Core-table data quality validation is complete, and the project has now moved into **SQL business analysis**, with Python/Pandas and Power BI planned for later stages of exploratory analysis, feature engineering, dashboarding, and business storytelling.
+The project is being developed as a practical **Data Analyst / Business Intelligence** case study combining SQL, Python/Pandas, MySQL, and Power BI.
+
+The initial SQL/MySQL phase established the relational data model, validated the core transactional tables, and began business analysis focused on revenue performance and its underlying drivers.
+
+The project is now expanding into a **Python/Pandas data ingestion and quality workflow**, which will be used to load, inspect, validate, and prepare the remaining Olist datasets before continuing deeper SQL and exploratory analysis.
 
 ## Project Objectives
 
@@ -49,25 +53,29 @@ Raw CSV files are stored locally and excluded from GitHub using `.gitignore`.
 - Git
 - GitHub
 
+### Next Phase
+- Python
+- Pandas
+- Jupyter Notebook
+
 ### Planned
-- Python / Pandas
 - Power BI
 - DAX
-- Visual Studio Code
 
 ## Current Data Model
 
-The core tables currently loaded and validated are:
+The project currently includes SQL setup for the following relational datasets:
 
 ```text
 customers
-    ↓
-orders
-    ├── order_items
-    └── order_payments
+    │
+    └── orders
+          ├── order_items ── products ── category_translation
+          ├── order_payments
+          └── order_reviews
 ```
 
-Additional Olist datasets such as reviews, products, sellers, and geolocation will be incorporated as the project develops.
+Core transactional tables have already been loaded and validated in MySQL. Product and category structures have also been added, while the data ingestion workflow for reviews and remaining datasets is being moved to Python/Pandas.
 
 ### Grain
 
@@ -248,11 +256,15 @@ ecommerce-customer-delivery-analysis/
 ├── sql/
 │   ├── 00_create_schema.sql
 │   ├── 01_create_customers_table.sql
-│   ├── 02_data_quality_checks.sql
-│   ├── 03_create_orders_table.sql
-│   ├── 04_create_order_items_table.sql
-│   ├── 05_create_order_payments_table.sql
-│   └── 06_business_analysis.sql
+│   ├── 02_create_orders_table.sql
+│   ├── 03_create_order_items_table.sql
+│   ├── 04_create_order_payments_table.sql
+│   ├── 05_create_products_table.sql
+│   ├── 06_create_category_translation_table.sql
+│   ├── 07_add_missing_category_translations.sql
+│   ├── 08_create_order_reviews_table.sql
+│   ├── 10_data_quality_checks.sql
+│   └── 11_business_analysis.sql
 │
 ├── python/
 ├── images/
@@ -329,26 +341,35 @@ This will help determine whether monthly revenue changes are primarily driven by
 ## Planned Workflow
 
 ```text
-Raw CSV Data
-      ↓
-MySQL
-      ↓
-SQL Data Quality & Validation
-      ↓
-Business Questions
-      ↓
-SQL Analysis
-      ↓
+Raw Olist CSV Files
+        ↓
+Python / Pandas
+Data Ingestion & Inspection
+        ↓
+Data Quality & Cleaning
+        ↓
+MySQL Relational Tables
+        ↓
+SQL Business Analysis
+        ↓
 Insights & Recommendations
-      ↓
+        ↓
 Python EDA & Feature Engineering
-      ↓
-Clean Analytical Views
-      ↓
+        ↓
+Validated Analytical Layer
+        ↓
 Power BI / DAX
-      ↓
+        ↓
 Dashboard Storytelling
 ```
+
+Python will serve two different purposes in the project:
+
+**Data engineering / preparation:** reproducible CSV ingestion, schema inspection, data-quality checks, cleaning, and preparation before loading data into MySQL.
+
+**Analytics:** exploratory analysis, distributions, feature engineering, and analyses that are more naturally handled with Pandas than SQL.
+
+SQL will remain the primary tool for relational business analysis, while Power BI will be used for semantic modeling, KPI reporting, and final business storytelling.
 
 Analytical views will be designed after the business-analysis stage clarifies which metrics, flags, and grains are actually required. Power BI will ultimately consume validated analytical views rather than unvalidated raw tables.
 
@@ -356,15 +377,24 @@ Analytical views will be designed after the business-analysis stage clarifies wh
 
 🚧 **Work in progress**
 
-**Completed:** Core-table data quality validation for `customers`, `orders`, `order_items`, and `order_payments`.
+**Completed so far:**
 
-**Current phase:** SQL business analysis.
+- Relational MySQL schema setup for the core Olist datasets
+- Data quality validation for customers, orders, order items, and payments
+- Product and category table setup
+- Order review table schema preparation
+- Initial SQL business analysis of monthly delivered-order volume and product revenue
+- Initial revenue-driver investigation covering order volume and Average Order Value
 
-The first completed business analysis examines monthly delivered-order volume and product revenue. The next step is AOV and revenue-driver decomposition.
+**Current transition:**
 
-Each analysis follows:
+The next phase introduces Python/Pandas as a reproducible data-ingestion and quality layer. Remaining source datasets will be loaded and validated through Python before continuing deeper SQL business analysis.
 
-> **Business Question → Analysis → Result → Insight → Recommendation**
+The business-analysis workflow remains:
+
+> **Business Question → Analysis → Insight → Recommendation**
+
+The next major analytical goal is to continue revenue-driver analysis, including product/category mix, before moving into delivery performance and customer experience.
 
 Recommendations are added only after the relevant drivers have been investigated and supported by the data.
 
