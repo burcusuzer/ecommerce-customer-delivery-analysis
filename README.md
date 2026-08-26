@@ -6,7 +6,7 @@ The project is being developed as a practical **Data Analyst / Business Intellig
 
 The initial SQL/MySQL phase established the relational data model, validated the core transactional tables, and began business analysis focused on revenue performance and its underlying drivers.
 
-The project is now expanding into a **Python/Pandas data ingestion and quality workflow**, which will be used to load, inspect, validate, and prepare the remaining Olist datasets before continuing deeper SQL and exploratory analysis.
+SQL business analysis and Python/Pandas now run **in parallel**: SQL is used for relational business analysis, while Python/Pandas is used for reproducible data ingestion, inspection, quality checks, and selected exploratory tasks. The first Python ingestion workflow successfully loaded the Olist order reviews dataset into MySQL after validating its structure and key behavior.
 
 ## Project Objectives
 
@@ -50,13 +50,11 @@ Raw CSV files are stored locally and excluded from GitHub using `.gitignore`.
 - SQL
 - MySQL
 - DBeaver
-- Git
-- GitHub
-
-### Next Phase
 - Python
 - Pandas
 - Jupyter Notebook
+- Git
+- GitHub
 
 ### Planned
 - Power BI
@@ -75,7 +73,7 @@ customers
           └── order_reviews
 ```
 
-Core transactional tables have already been loaded and validated in MySQL. Product and category structures have also been added, while the data ingestion workflow for reviews and remaining datasets is being moved to Python/Pandas.
+Core transactional tables have already been loaded and validated in MySQL. Product and category structures have also been added. The `order_reviews` dataset was inspected with Pandas and successfully loaded into MySQL through SQLAlchemy.
 
 ### Grain
 
@@ -85,6 +83,7 @@ Understanding table grain is treated as a core part of the analysis:
 - `orders`: one row per `order_id`
 - `order_items`: one row per item within an order
 - `order_payments`: one row per payment record within an order
+- `order_reviews`: one row per review-order record; neither `review_id` nor `order_id` is individually unique, while the checked `(review_id, order_id)` combination is unique
 
 Because `order_items` and `order_payments` are both one-to-many relationships from `orders`, joining them directly can multiply rows. Order-level analysis will therefore aggregate child tables to the required grain before joining when necessary.
 
@@ -196,6 +195,30 @@ Both orders were delivered normally, and in both cases the recorded `payment_val
 
 This is treated as a minor dataset quirk rather than a critical quality error.
 
+### Order Reviews
+
+The reviews CSV was loaded with Pandas because DBeaver's CSV importer produced parsing errors on the file. Python inspection confirmed that the source file itself was readable and structurally consistent.
+
+- 99,224 review records
+- 98,410 unique `review_id` values
+- 98,673 unique `order_id` values
+- 0 fully duplicated rows
+- 789 different `review_id` values appear more than once
+- 547 different `order_id` values appear more than once
+- Maximum observed review records for one order: 3
+- No duplicate `(review_id, order_id)` combinations identified
+- `review_score` contains only values from 1 to 5
+- Maximum review-title length: 26 characters
+- Maximum review-message length: 208 characters
+- 87,656 null review titles
+- 58,247 null review messages
+
+Missing written comments are preserved because the review score remains usable even when no text was provided.
+
+A key modeling finding is that neither `review_id` nor `order_id` should be assumed to be individually unique in this dataset. For future order-level analysis, if a single score is required for an order with multiple review records, the current working decision is to use the most recent review based on `review_answer_timestamp`.
+
+The raw review records remain unchanged; the "latest review" rule will be applied only when the business question requires one review per order.
+
 ## Data Quality Strategy
 
 The validation workflow follows a reusable pattern:
@@ -267,6 +290,8 @@ ecommerce-customer-delivery-analysis/
 │   └── 11_business_analysis.sql
 │
 ├── python/
+│   ├── 01_customer_data_inspection.ipynb
+│   └── 02_order_reviews_ingestion_quality.ipynb
 ├── images/
 ├── README.md
 └── .gitignore
@@ -319,13 +344,37 @@ Revenue growth appears to be influenced by both order volume and changes in aver
 
 These remain hypotheses until validated with further analysis.
 
-### Next SQL Analysis
+### 2. Revenue Driver Decomposition
 
-The next step is:
+The next layer of analysis decomposed revenue into order volume and Average Order Value.
 
-> **Revenue decomposition → Order Volume + Average Order Value (AOV)**
+**Current finding**
 
-This will help determine whether monthly revenue changes are primarily driven by more orders, higher value per order, or a combination of both.
+- Revenue changes cannot be explained by order volume alone.
+- AOV increased while order volume decreased in the period being investigated.
+- Items per order increased only slightly.
+- Average item price increased more clearly and appears to be the stronger AOV driver.
+
+**Next question**
+
+> **Was the increase in average item price driven by a change in product/category mix?**
+
+This will be investigated using the `products` and category translation tables.
+
+### Python Workflow Progress
+
+Python/Pandas is now being used alongside SQL rather than being postponed until the end of the project.
+
+Completed Python steps:
+
+- Initial customer dataset inspection
+- Order reviews CSV ingestion with Pandas
+- Datetime conversion
+- Null, duplicate, uniqueness, and review-score checks
+- Review/order grain investigation
+- MySQL connection through SQLAlchemy
+- Successful load of all 99,224 review rows into MySQL
+- Post-load validation against Pandas row and distinct-ID counts
 
 ### Planned Later Analyses
 
@@ -344,32 +393,32 @@ This will help determine whether monthly revenue changes are primarily driven by
 Raw Olist CSV Files
         ↓
 Python / Pandas
-Data Ingestion & Inspection
-        ↓
-Data Quality & Cleaning
+Ingestion, Inspection & Quality Checks
         ↓
 MySQL Relational Tables
         ↓
-SQL Business Analysis
-        ↓
+        ├───────────────┐
+        ↓               ↓
+SQL Business      Python EDA /
+Analysis          Feature Engineering
+        └───────┬───────┘
+                ↓
 Insights & Recommendations
-        ↓
-Python EDA & Feature Engineering
-        ↓
+                ↓
 Validated Analytical Layer
-        ↓
+                ↓
 Power BI / DAX
-        ↓
+                ↓
 Dashboard Storytelling
 ```
 
-Python will serve two different purposes in the project:
+Python serves two different purposes in the project:
 
-**Data engineering / preparation:** reproducible CSV ingestion, schema inspection, data-quality checks, cleaning, and preparation before loading data into MySQL.
+**Data preparation:** reproducible CSV ingestion, schema inspection, data-quality checks, cleaning, and loading validated source data into MySQL.
 
 **Analytics:** exploratory analysis, distributions, feature engineering, and analyses that are more naturally handled with Pandas than SQL.
 
-SQL will remain the primary tool for relational business analysis, while Power BI will be used for semantic modeling, KPI reporting, and final business storytelling.
+SQL remains the primary tool for relational business analysis. Python and SQL therefore progress in parallel, while Power BI will later be used for semantic modeling, KPI reporting, and final business storytelling.
 
 Analytical views will be designed after the business-analysis stage clarifies which metrics, flags, and grains are actually required. Power BI will ultimately consume validated analytical views rather than unvalidated raw tables.
 
@@ -382,19 +431,21 @@ Analytical views will be designed after the business-analysis stage clarifies wh
 - Relational MySQL schema setup for the core Olist datasets
 - Data quality validation for customers, orders, order items, and payments
 - Product and category table setup
-- Order review table schema preparation
-- Initial SQL business analysis of monthly delivered-order volume and product revenue
-- Initial revenue-driver investigation covering order volume and Average Order Value
+- Order reviews inspected with Pandas and successfully loaded into MySQL
+- Order-review grain and key behavior investigated
+- Initial Python ingestion and quality notebooks added to the repository
+- Monthly delivered-order volume and product-revenue analysis completed
+- Revenue-driver decomposition progressed through order volume, AOV, items per order, and average item price
 
-**Current transition:**
+**Current phase: SQL business analysis + Python/Pandas ingestion in parallel**
 
-The next phase introduces Python/Pandas as a reproducible data-ingestion and quality layer. Remaining source datasets will be loaded and validated through Python before continuing deeper SQL business analysis.
+The next SQL question is whether the observed increase in average item price is explained by a change in **product/category mix**.
+
+Python/Pandas will continue to support ingestion, validation, and exploratory work for the remaining datasets.
 
 The business-analysis workflow remains:
 
 > **Business Question → Analysis → Insight → Recommendation**
-
-The next major analytical goal is to continue revenue-driver analysis, including product/category mix, before moving into delivery performance and customer experience.
 
 Recommendations are added only after the relevant drivers have been investigated and supported by the data.
 
