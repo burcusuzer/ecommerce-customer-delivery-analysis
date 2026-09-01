@@ -835,110 +835,126 @@ WHERE TRIM(p.product_category_name) <> ''
 -- Order Reviews Table - Data Quality and Initial Validation
 -- =========================================================
 
-
--- 1. Row count and order coverage
--- Grain: one row represents one review record associated with an order
+-- 1. Row count and identifier coverage
 SELECT
-    COUNT(*) AS total_review_records,
-    COUNT(DISTINCT review_id) AS distinct_review_ids,
-    COUNT(DISTINCT order_id) AS orders_with_reviews
+    COUNT(*) AS total_review_rows,
+    COUNT(DISTINCT review_id) AS unique_review_ids,
+    COUNT(DISTINCT order_id) AS unique_order_ids
 FROM order_reviews;
-
 
 -- 2. Null value checks
 SELECT
     SUM(review_id IS NULL) AS null_review_id,
     SUM(order_id IS NULL) AS null_order_id,
     SUM(review_score IS NULL) AS null_review_score,
-    SUM(review_creation_date IS NULL) AS null_creation_date,
-    SUM(review_answer_timestamp IS NULL) AS null_answer_timestamp
+    SUM(review_comment_title IS NULL) AS null_review_comment_title,
+    SUM(review_comment_message IS NULL) AS null_review_comment_message,
+    SUM(review_creation_date IS NULL) AS null_review_creation_date,
+    SUM(review_answer_timestamp IS NULL) AS null_review_answer_timestamp
 FROM order_reviews;
 
-
--- 3. Duplicate review ID check
-SELECT
-    review_id,
-    COUNT(*) AS row_count
-FROM order_reviews
-GROUP BY review_id
-HAVING COUNT(*) > 1
-ORDER BY row_count DESC;
-
-
--- 4. Orders with multiple review records
-SELECT
-    order_id,
-    COUNT(*) AS review_count
-FROM order_reviews
-GROUP BY order_id
-HAVING COUNT(*) > 1
-ORDER BY review_count DESC;
-
-
--- 5. Review score distribution
+-- 3. Review score sanity check
 SELECT
     review_score,
-    COUNT(*) AS review_count,
-    ROUND(
-        100.0 * COUNT(*) / SUM(COUNT(*)) OVER (),
-        2
-    ) AS review_share_pct
+    COUNT(*) AS review_count
 FROM order_reviews
 GROUP BY review_score
 ORDER BY review_score;
 
-
--- 6. Review score sanity check
+-- 4. Review score values outside the expected 1-5 range
 SELECT
-    SUM(review_score < 1) AS scores_below_1,
-    SUM(review_score > 5) AS scores_above_5,
-    MIN(review_score) AS min_review_score,
-    MAX(review_score) AS max_review_score
+    COUNT(*) AS invalid_review_scores
+FROM order_reviews
+WHERE review_score NOT BETWEEN 1 AND 5;
+
+-- 5. Repeated review_id values
+SELECT
+    COUNT(*) AS repeated_review_ids
+FROM (
+    SELECT review_id
+    FROM order_reviews
+    GROUP BY review_id
+    HAVING COUNT(*) > 1
+) r;
+
+-- 6. Maximum number of rows sharing one review_id
+SELECT
+    MAX(review_count) AS max_rows_per_review_id
+FROM (
+    SELECT
+        review_id,
+        COUNT(*) AS review_count
+    FROM order_reviews
+    GROUP BY review_id
+) r;
+
+-- 7. Orders with more than one review record
+SELECT
+    COUNT(*) AS orders_with_multiple_reviews
+FROM (
+    SELECT order_id
+    FROM order_reviews
+    GROUP BY order_id
+    HAVING COUNT(*) > 1
+) r;
+
+-- 8. Maximum number of review records for one order
+SELECT
+    MAX(review_count) AS max_reviews_per_order
+FROM (
+    SELECT
+        order_id,
+        COUNT(*) AS review_count
+    FROM order_reviews
+    GROUP BY order_id
+) r;
+
+-- 9. Duplicate review_id + order_id combinations
+SELECT
+    review_id,
+    order_id,
+    COUNT(*) AS row_count
+FROM order_reviews
+GROUP BY review_id, order_id
+HAVING COUNT(*) > 1;
+
+-- 10. Review text length checks
+SELECT
+    MAX(CHAR_LENGTH(review_comment_title)) AS max_review_title_length,
+    MAX(CHAR_LENGTH(review_comment_message)) AS max_review_message_length
 FROM order_reviews;
 
-
--- 7. Missing or blank review comments
--- Review comments are optional, so missing values are not automatically data-quality errors
+-- 11. Orders without a matching order record
 SELECT
-    SUM(
-        review_comment_title IS NULL
-        OR TRIM(review_comment_title) = ''
-    ) AS missing_review_titles,
-    SUM(
-        review_comment_message IS NULL
-        OR TRIM(review_comment_message) = ''
-    ) AS missing_review_messages
-FROM order_reviews;
-
-
--- 8. Reviews without a matching order
-SELECT
-    COUNT(*) AS reviews_without_matching_order
+    COUNT(*) AS unmatched_review_orders
 FROM order_reviews r
 LEFT JOIN orders o
     ON r.order_id = o.order_id
 WHERE o.order_id IS NULL;
 
-
--- 9. Review answers recorded before review creation
-SELECT
-    COUNT(*) AS answer_before_creation
-FROM order_reviews
-WHERE review_answer_timestamp < review_creation_date;
-
-
--- 10. Reviews created before the corresponding order was purchased
-SELECT
-    COUNT(*) AS review_before_purchase
-FROM order_reviews r
-JOIN orders o
-    ON r.order_id = o.order_id
-WHERE r.review_creation_date < o.order_purchase_timestamp;
-
-
-
--- =========================================================
--- Order Reviews - Findings
--- =========================================================
-
--- Findings will be added after validation results are reviewed.
+-- Findings:
+-- 99,224 review records.
+-- 98,410 unique review_id values.
+-- 98,673 unique order_id values.
+-- No full duplicate rows were found during the Pandas validation workflow.
+-- 789 distinct review_id values appear more than once.
+-- Maximum occurrences of one review_id: 3.
+-- 547 orders have more than one review record.
+-- Maximum review records observed for a single order: 3.
+-- No duplicate (review_id, order_id) combinations were found.
+-- review_score values are limited to the expected 1-5 range.
+-- Maximum review title length: 26 characters.
+-- Maximum review message length: 208 characters.
+-- 87,656 review_comment_title values are NULL.
+-- 58,247 review_comment_message values are NULL.
+--
+-- Grain:
+-- One row represents one review-order record.
+-- Neither review_id nor order_id is individually unique.
+-- The checked (review_id, order_id) combination is unique.
+--
+-- Analytical decision:
+-- Raw review records are preserved.
+-- When an order-level analysis requires one review score per order,
+-- the latest review will be selected using review_answer_timestamp
+-- to avoid giving multi-review orders additional weight.
