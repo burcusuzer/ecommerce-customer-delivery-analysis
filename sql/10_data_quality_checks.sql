@@ -958,3 +958,79 @@ WHERE o.order_id IS NULL;
 -- When an order-level analysis requires one review score per order,
 -- the latest review will be selected using review_answer_timestamp
 -- to avoid giving multi-review orders additional weight.
+
+
+-- =========================================================
+-- Sellers Table - Data Quality and Initial Validation
+-- =========================================================
+
+-- 1. Row count and seller ID uniqueness
+-- Grain: one row represents one seller
+SELECT
+    COUNT(*) AS total_sellers,
+    COUNT(DISTINCT seller_id) AS distinct_seller_ids,
+    COUNT(DISTINCT seller_zip_code_prefix) AS distinct_zip_prefixes
+FROM sellers;
+
+-- 2. Null value checks
+SELECT
+    SUM(seller_id IS NULL) AS null_seller_id,
+    SUM(seller_zip_code_prefix IS NULL) AS null_zip_prefix,
+    SUM(seller_city IS NULL) AS null_city,
+    SUM(seller_state IS NULL) AS null_state
+FROM sellers;
+
+-- 3. Duplicate seller ID check
+SELECT
+    seller_id,
+    COUNT(*) AS row_count
+FROM sellers
+GROUP BY seller_id
+HAVING COUNT(*) > 1;
+
+-- 4. Blank city and state checks
+SELECT
+    SUM(TRIM(seller_city) = '') AS blank_city,
+    SUM(TRIM(seller_state) = '') AS blank_state
+FROM sellers;
+
+-- 5. State code format check
+SELECT
+    seller_state,
+    COUNT(*) AS seller_count
+FROM sellers
+WHERE CHAR_LENGTH(TRIM(seller_state)) <> 2
+GROUP BY seller_state;
+
+-- =========================================================
+-- Sellers - Findings
+-- =========================================================
+
+-- Grain:
+-- One row represents one seller.
+-- seller_id uniquely identifies each seller.
+--
+-- 3,095 seller records were found.
+-- All 3,095 seller_id values are distinct.
+--
+-- 2,246 distinct seller ZIP-code prefixes were found.
+-- ZIP-code prefix is not unique, which is expected because
+-- multiple sellers can operate within the same geographic area.
+--
+-- No NULL values were found in the checked seller fields.
+-- No full duplicate rows were found during the Pandas validation workflow.
+-- No blank seller_city or seller_state values were found.
+-- All seller_state values have the expected 2-character format.
+--
+-- Python-to-MySQL validation:
+-- Pandas and MySQL results matched exactly:
+--   - Total rows: 3,095
+--   - Unique seller_id values: 3,095
+--   - Unique ZIP-code prefixes: 2,246
+--
+-- This confirms that the sellers dataset was loaded into MySQL
+-- without row loss or row multiplication.
+--
+-- Analyst note:
+-- The sellers table appears structurally clean and suitable for
+-- seller-level and geographic analysis.
